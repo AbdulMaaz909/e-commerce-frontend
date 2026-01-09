@@ -1,77 +1,98 @@
 'use client'
-import {React,useState,useEffect} from 'react'
+import { React, useState, useEffect } from 'react'
 import api from '@/lib/app.js'
+import {useRouter} from 'next/navigation';
+
 const Shop = () => {
-    const [products, setProducts] = useState([
-      { id: 1, name: "Pizza", price: 500 }, // Mock data if API is not ready
-      { id: 2, name: "Burger", price: 200 },
-    ]);
+  // 1. Changed products to an empty array initially
+  const [products, setProducts] = useState([]);
+  const [cartData, setCartData] = useState({ cart: [], subtotal: 0 });
+  const [coupon, setCoupon] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [msg, setMsg] = useState({ type: '', text: '' });
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-    const [cartData, setCartData] = useState({ cart: [], subtotal: 0 });
-const [coupon, setCoupon] = useState("");
-const [discount, setDiscount] = useState(0);
-const [msg, setMsg] = useState({ type: '', text: '' });
-
-// 2. Define your functions
-const fetchCart = async () => {
+  // 2. Function to fetch products from your backend
+  const fetchProducts = async () => {
     try {
-        const res = await api.get('/');
-        // IMPORTANT: Don't forget to actually set the state here!
-        setCartData(res.data); 
+      setLoading(true);
+      const res = await api.get('/getproducts'); // Your GET request
+      setProducts(res.data);
     } catch (error) {
-        console.error("Cart error", error);
+      console.error("Error fetching products", error);
+      setMsg({ type: 'error', text: 'Could not load menu items.' });
+    } finally {
+      setLoading(false);
     }
-};
+  };
 
-const handleAddToCart = async (productId) => { // Added productId as a parameter
+  const fetchCart = async () => {
     try {
-        await api.post('/add', { productId, quantity: 1 });
-        setMsg({ type: 'success', text: 'Added to cart!' });
-        fetchCart();
-    } catch (err) {
-        setMsg({ type: 'error', text: 'Failed to add item' });
+      const res = await api.get('/');
+      setCartData(res.data);
+    } catch (error) {
+      console.error("Cart error", error);
     }
-};
+  };
 
-const handleApplyCoupon = async () => {
+  const handleAddToCart = async (productId) => {
     try {
-        const res = await api.post("/apply-coupon", { couponCode: coupon });
-        setDiscount(res.data.discount);
-        setMsg({ type: 'success', text: `Discount of ₹${res.data.discount} applied!` });
+      await api.post('/add', { productId, quantity: 1 });
+      setMsg({ type: 'success', text: 'Added to cart!' });
+      fetchCart();
     } catch (err) {
-        setDiscount(0);
-        setMsg({ type: 'error', text: err.response?.data?.message || "Invalid Coupon" });
+      setMsg({ type: 'error', text: 'Failed to add item' });
     }
-};
+  };
 
-// 3. Put useEffect at the bottom of the logic section
-useEffect(() => {
-    const loadData = async () =>{
-        await fetchCart();
-    };
-    loadData()
-}, []);
+  const handleApplyCoupon = async () => {
+    try {
+      const res = await api.post("/apply-coupon", { couponCode: coupon });
+      setDiscount(res.data.discount);
+      setMsg({ type: 'success', text: `Discount of ₹${res.data.discount} applied!` });
+    } catch (err) {
+      setDiscount(0);
+      setMsg({ type: 'error', text: err.response?.data?.message || "Invalid Coupon" });
+    }
+  };
 
 const handlePlaceOrder = async () => {
-    try {
-        // We send the coupon code so the backend can apply the final discount
-        const res = await api.post('/checkout', { couponCode: coupon });
-        
-        // If successful, we show the order ID and clear the local UI
-        alert(`Order Placed Successfully! Order ID: ${res.data.orderId}`);
-        
-        // Refresh the cart (it should now be empty)
-        setCartData({ cart: [], subtotal: 0 });
-        setDiscount(0);
-        setCoupon("");
-        
-        // Optional: Redirect to a "Success" page
-        // router.push(`/order-success/${res.data.orderId}`);
-        
-    } catch (err) {
-        alert(err.response?.data?.message || "Failed to place order");
+  try {
+    const res = await api.post('/checkout', { couponCode: coupon });
+    
+    // 1. Get the ID from the backend response
+    const newId = res.data.orderId; 
+    
+    if (newId) {
+      alert(`Order Placed! ID: ${newId}`);
+      // 2. You MUST include the ?id= part here!
+      router.push(`/vieworder?id=${newId}`); 
+    } else {
+      console.error("Backend did not return an orderId");
     }
+  } catch (err) {
+    alert(err.response?.data?.message || "Failed to place order");
+  }
 };
+
+  // 3. Updated useEffect to load both Products and Cart on mount
+  useEffect(() => {
+    const loadAllData = async () => {
+      await fetchProducts();
+      await fetchCart();
+    };
+    loadAllData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-xl font-bold animate-pulse">Loading Menu...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-10 text-black">
       <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -84,11 +105,14 @@ const handlePlaceOrder = async () => {
               {msg.text}
             </div>
           )}
+          
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {products.map(p => (
+            {products.length > 0 ? products.map(p => (
               <div key={p.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
                 <div>
                   <h3 className="text-lg font-semibold">{p.name}</h3>
+                  {/* Showing category name if your join query provides it */}
+                  <p className="text-xs text-gray-500 uppercase">{p.category_name}</p>
                   <p className="text-blue-600 font-bold">₹{p.price}</p>
                 </div>
                 <button 
@@ -98,7 +122,9 @@ const handlePlaceOrder = async () => {
                   Add +
                 </button>
               </div>
-            ))}
+            )) : (
+              <p className="text-gray-500">No products available.</p>
+            )}
           </div>
         </div>
 
@@ -122,21 +148,31 @@ const handlePlaceOrder = async () => {
               <span>₹{cartData.subtotal}</span>
             </div>
 
-            {/* Coupon Input */}
-            <div className="flex gap-2 mt-4">
-              <input 
-                type="text" 
-                placeholder="Coupon Code"
-                className="flex-1 border p-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                value={coupon}
-                onChange={(e) => setCoupon(e.target.value)}
-              />
-              <button 
-                onClick={handleApplyCoupon}
-                className="bg-gray-800 text-white px-3 py-1 rounded-md text-sm hover:bg-black"
-              >
-                Apply
-              </button>
+            {/* Coupon Selection */}
+            <div className="mt-6 border-t pt-4">
+              <label className="block text-sm font-bold text-gray-700 mb-2">Available Offers</label>
+              <div className="flex items-center gap-2 w-full">
+                <select 
+                  className="flex-1 border p-2 rounded-lg bg-white text-black outline-none focus:ring-2 focus:ring-blue-500"
+                  value={coupon}
+                  onChange={(e) => {
+                    setCoupon(e.target.value);
+                    setDiscount(0);
+                  }}
+                >
+                  <option value="">-- Choose a Coupon --</option>
+                  <option value="WELCOME">WELCOME (20% Off - First Order)</option>
+                  <option value="DRINK200">DRINK200 (₹200 Off Drinks - Min ₹1000)</option>
+                  <option value="SAVE10">SAVE10 (10% Off Food - Min ₹5000)</option>
+                </select>
+                
+                <button 
+                  onClick={handleApplyCoupon}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition whitespace-nowrap"
+                >
+                  Apply
+                </button>
+              </div>
             </div>
 
             {discount > 0 && (
@@ -162,4 +198,4 @@ const handlePlaceOrder = async () => {
   )
 }
 
-export default Shop
+export default Shop;
